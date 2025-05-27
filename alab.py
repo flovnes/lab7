@@ -1,235 +1,205 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-def dy_dt(t, y):
-    val = 2 * t * y**2
-    return val
+def df(t, y):
+    return 2 * t * y**2
 
-def analytical_solution(t):
-    return 1.0 / (1.0 - t**2)
+def y(t):
+    return 1 / (1 - t**2)
 
-def rk_step(f, t_i, y_i, h_step):
-    k1 = h_step * f(t_i, y_i)
-    k2 = h_step * f(t_i + 0.5 * h_step, y_i + 0.5 * k1)
-    k3 = h_step * f(t_i + 0.5 * h_step, y_i + 0.5 * k2)
-    k4 = h_step * f(t_i + h_step, y_i + k3)
-    y_next = y_i + (k1 + 2*k2 + 2*k3 + k4) / 6.0
+def rk(df, t, y, h):
+    f1 = df(t, y)
+    f2 = df(t + 0.5 * h, y + 0.5 * h * f1)
+    f3 = df(t + 0.5 * h, y + 0.5 * h * f2)
+    f4 = df(t + h, y + h * f3)
+    y_next = y + h/6 * (f1 + 2*f2 + 2*f3 + f4) 
     return y_next
 
-def solve(t0_sc, y0_sc, h_sc, n_abm_sc, use_corrector_sc,
-                   dy_dt_func, rk_step_func, max_t_limit):
-    t_points = [t0_sc]
-    y_points = [y0_sc]
-    f_points = []
+def solve(t0, y0, h, variant):
+    tt = [t0]
+    yy = [y0]
+    ff = []
 
-    f0_val = dy_dt_func(t0_sc, y0_sc)
-    if not np.isfinite(f0_val):
-        f_points.append(np.nan)
-        return t_points, y_points, f_points
-    f_points.append(f0_val)
+    f_at_t0_y0 = df(t0, y0)
+    ff.append(f_at_t0_y0)
 
-    current_t_sc = t0_sc
-    current_y_sc = y0_sc
-    num_rk_startup_steps = 3
+    t = t0
+    y = y0
+    n_start = 3 # 4-1
 
-    # метoд Рунге-Кутта
-    for i in range(num_rk_startup_steps):
-        if current_t_sc + h_sc > max_t_limit + 1e-9:
-            break
-        if not np.isfinite(current_y_sc):
-            break
+    for _ in range(n_start):
+        if t + h > max_t: break
+        
+        y_next_rk = rk(df, t, y, h)
 
-        y_next_sc = rk_step_func(dy_dt_func, current_t_sc, current_y_sc, h_sc)
+        t += h
+        y = y_next_rk
 
-        current_t_sc = round(current_t_sc + h_sc, 10)
-        current_y_sc = y_next_sc
+        tt.append(t)
+        yy.append(y)
+        ff.append(df(t, y))
 
-        t_points.append(current_t_sc)
-        y_points.append(current_y_sc)
+    p_prev = None
+    y_prev = None
 
-        if np.isfinite(current_y_sc):
-            f_curr_val = dy_dt_func(current_t_sc, current_y_sc)
-            f_points.append(f_curr_val if np.isfinite(f_curr_val) else np.nan)
-        else:
-            f_points.append(np.nan)
-            break
+    # n кроків методом абрамса
+    
+    for _ in range(n):
+        k = len(yy) - 1 
+        if tt[k] + h > max_t: break
+        
+        p = yy[k] + h/24 * (-9*ff[k-3] + 37*ff[k-2] - 59*ff[k-1] + 55*ff[k])
+        
+        t_next = tt[k] + h
+        
+        if variant:
+            # якшо не перший крок
+            if p_prev is not None:
+                p -= (19/270) * (p_prev - y_prev)
+        
+        y_next = yy[k] + h/24 * (ff[k-2] - 5*ff[k-1] + 19*ff[k] + 9*df(t_next, p))
+        
+        p_prev = p
+        y_prev = y_next
 
-    # метод Адамса
-    for _ in range(n_abm_sc):
-        k = len(y_points) - 1 
+        t = t_next
+        y = y_next
 
-        if t_points[k] + h_sc > max_t_limit + 1e-9: 
-            break
-        if not np.isfinite(y_points[k]) or \
-           not all(np.isfinite(f_points[j]) for j in range(k-3, k+1)): 
-            break
-
-        y_predicted_sc = y_points[k] + (h_sc / 24.0) * (
-            55 * f_points[k] - 59 * f_points[k-1] + 37 * f_points[k-2] - 9 * f_points[k-3]
-        )
-
-        t_next_sc = round(t_points[k] + h_sc, 10)
-        current_y_abm_step = y_predicted_sc
-
-        if use_corrector_sc:
-            if not np.isfinite(y_predicted_sc):
-                f_predicted_val = np.nan
-            else:
-                f_predicted_val = dy_dt_func(t_next_sc, y_predicted_sc)
+        tt.append(t)
+        yy.append(y)
+        ff.append(df(t, y))
             
-            if not np.isfinite(f_predicted_val): 
-                pass 
-            else:
-                y_corrected_sc = y_points[k] + (h_sc / 24.0) * (
-                    9 * f_predicted_val + 19 * f_points[k] - 5 * f_points[k-1] + f_points[k-2]
-                )
-                current_y_abm_step = y_corrected_sc
+    return tt, yy, ff
 
-        current_t_sc = t_next_sc
-        current_y_sc = current_y_abm_step
-        t_points.append(current_t_sc)
-        y_points.append(current_y_sc)
+t0 = 0.0
+y0 = 1.0
+h_b = 0.01
+n = 100
+max_t = 0.99
 
-        if np.isfinite(current_y_sc):
-            f_curr_val = dy_dt_func(current_t_sc, current_y_sc)
-            f_points.append(f_curr_val if np.isfinite(f_curr_val) else np.nan)
-        else:
-            f_points.append(np.nan)
-            break
+print(f"y' = 2*t*y^2, y({t0:.0f}) = {y0:.0f}, h = {h_b}\n")
 
-    return t_points, y_points, f_points
-
-t_initial = 0.0
-y_initial = 1.0
-h_base_step = 0.1
-n_abm_steps = 5
-max_t_calculation = 0.99
-
-print(f"Задача Коші: y' = 2*t*y^2, y({t_initial}) = {y_initial} h = {h_base_step}")
-
-scenarios_params = [
-    {"id": "a", "label": "а) Без коректора, h=h_base", "h_val": h_base_step, "use_corr": False, "linestyle": "g-.", "marker": "^"},
-    {"id": "b", "label": "б) З коректором, h=h_base",   "h_val": h_base_step, "use_corr": True,  "linestyle": "b-",  "marker": "o"},
-    {"id": "c", "label": "в) Без коректора, h=2*h_base","h_val": 2*h_base_step, "use_corr": False, "linestyle": "m--", "marker": "s"},
-    {"id": "d", "label": "г) З коректором, h=2*h_base",  "h_val": 2*h_base_step, "use_corr": True,  "linestyle": "c:",  "marker": "x"},
+sc_params = [
+    {"id": "a", "lbl": "а) Без управляючого параметра, h'=h", "h_v": h_b, "use_cp": False, "ls": "g-.", "mkr": "^"},
+    {"id": "b", "lbl": "б) З управляючим параметром, h'=h",   "h_v": h_b, "use_cp": True,  "ls": "b-",  "mkr": "o"},
+    {"id": "c", "lbl": "в) Без управляючого параметра, h'=2*h","h_v": 2*h_b, "use_cp": False, "ls": "m--", "mkr": "s"},
+    {"id": "d", "lbl": "г) З управляючим параметром, h'=2*h",  "h_v": 2*h_b, "use_cp": True,  "ls": "c:",  "mkr": "x"},
 ]
 
-all_results = {}
+results = {}
 
-for params in scenarios_params:
-    time_pts, y_pts, f_vals = solve(
-        t0_sc=t_initial, y0_sc=y_initial,
-        h_sc=params["h_val"],
-        n_abm_sc=n_abm_steps,
-        use_corrector_sc=params["use_corr"],
-        dy_dt_func=dy_dt,
-        rk_step_func=rk_step,
-        max_t_limit=max_t_calculation
-    )
-    all_results[params["id"]] = {
-        "label": params["label"], "t": time_pts, "y": y_pts, "f": f_vals,
-        "linestyle": params["linestyle"], "marker": params["marker"], "h_val": params["h_val"]
+for p in sc_params:
+    t_pts, y_pts, f_vs = solve(t0, y0, h=p["h_v"], variant=p["use_cp"])
+    results[p["id"]] = {
+        "lbl": p["lbl"], "t": t_pts, "y": y_pts, "f": f_vs,
+        "ls": p["ls"], "mkr": p["mkr"], "h_v": p["h_v"],
+        "use_cp_v": p["use_cp"]
     }
 
+print("Порівняння точності:")
+for cfg in sc_params:
+    s_id = cfg["id"]
+    res = results[s_id]
 
-print("\nПорівняння точності\n")
-for scenario_config in scenarios_params:
-    sc_id = scenario_config["id"]
-    res = all_results[sc_id]
+    tn_raw = np.array(res['t'])
+    yn_raw = np.array(res['y'])
+    
+    tn = tn_raw
+    yn = yn_raw
+    
+    ya_comp = np.array([y(tv) for tv in tn])
+    
+    valid_analytical_indices = np.isfinite(ya_comp)
+    tn_final = tn[valid_analytical_indices]
+    yn_final = yn[valid_analytical_indices]
+    ya_final = ya_comp[valid_analytical_indices]
 
-    t_numerical = np.array(res['t'])
-    y_numerical = np.array(res['y'])
+    abs_err = np.abs(yn_final - ya_final)
+    
+    max_err = np.max(abs_err)
+    print(f"{res['lbl']}: {max_err:.4e}")
 
-    y_analytical_at_t_comparison = np.array([analytical_solution(t_val) for t_val in t_numerical])
+max_y_plot = 15.0
 
-    abs_errors = np.abs(y_numerical - y_analytical_at_t_comparison)
-    max_abs_error = np.max(abs_errors)
-    print(f"{res['label']}: {max_abs_error:.4e}")
-
-
-max_y_display = 7.0
-
-# Графік 1
 fig1, ax1 = plt.subplots(figsize=(10, 7))
-fig1.suptitle(f"Розв'язки: y' = 2*t*y^2, y({t_initial:.1f})={y_initial:.1f} (h_base={h_base_step})", fontsize=14)
-ax1.set_title("Варіанти (а) та (б)", fontsize=12)
+fig1.suptitle(f"y' = 2*t*y^2, y({t0:.0f})={y0:.0f} (h={h_b})", fontsize=14)
 
-max_t_for_plot1 = t_initial
-relevant_ids_g1 = ["a", "b"]
-for sc_id in relevant_ids_g1:
-    res = all_results[sc_id]
-    if res['t'] and np.isfinite(res['t'][-1]): max_t_for_plot1 = max(max_t_for_plot1, res['t'][-1])
+max_t_p1 = t0
+rel_ids_g1 = ["a", "b"]
+for s_id in rel_ids_g1:
+    res = results[s_id]
+    if res['t']: max_t_p1 = max(max_t_p1, res['t'][-1])
 
-t_end_analytical_g1 = min(max_t_for_plot1 + h_base_step, max_t_calculation + h_base_step, 0.999)
-if t_end_analytical_g1 <= t_initial : t_end_analytical_g1 = max_t_calculation if max_t_calculation > t_initial else t_initial + h_base_step
+t_end_an_g1 = min(max_t_p1 + h_b, max_t + h_b * 0.1, 0.999)
+if t_end_an_g1 <= t0: t_end_an_g1 = max_t if max_t > t0 else t0 + h_b
 
-t_analytical1 = np.linspace(t_initial, t_end_analytical_g1, 300)
-y_analytical1_raw = np.array([analytical_solution(ti) for ti in t_analytical1])
+ta1 = np.linspace(t0, t_end_an_g1, 300)
+ya1_raw = np.array([y(ti) for ti in ta1])
+valid_an1 = np.where(np.isfinite(ya1_raw) & (np.abs(ya1_raw) < max_y_plot * 1.1))[0]
+if len(valid_an1) > 0:
+    ax1.plot(ta1[valid_an1], ya1_raw[valid_an1], 'k--', label='Точний розв\'язок', lw=1.5, zorder=1)
 
-valid_an_idx1 = np.where(np.isfinite(y_analytical1_raw) & (np.abs(y_analytical1_raw) < max_y_display * 1.1))[0]
-if len(valid_an_idx1) > 0:
-    ax1.plot(t_analytical1[valid_an_idx1], y_analytical1_raw[valid_an_idx1],
-                'k--', label=f'Точний розв\'язок', linewidth=1.5, zorder=1)
+for s_id in rel_ids_g1:
+    r = results[s_id]
+    tp_raw = np.array(r['t'])
+    yp_raw = np.array(r['y'])
+    
+    valid_plot_idx = np.where(np.isfinite(yp_raw) & (np.abs(yp_raw) < max_y_plot * 1.5))[0] 
+    tp = tp_raw[valid_plot_idx]
+    yp = yp_raw[valid_plot_idx]
 
-for sc_id in relevant_ids_g1:
-    result = all_results[sc_id]
-    t_plot = np.array(result['t'])
-    y_plot = np.array(result['y'])
-    valid_idx = np.where(np.isfinite(y_plot) & (np.abs(y_plot) < max_y_display * 1.5))[0]
-    if len(valid_idx) > 0:
-        ax1.plot(t_plot[valid_idx], y_plot[valid_idx],
-                    result['linestyle'], marker=result['marker'],
-                    label=result['label'], markersize=6, zorder=int(sc_id == 'b') + 2) # Corrector on top
-    else:
-            ax1.plot([],[], result['linestyle'], marker=result['marker'], label=result['label'])
+    if len(tp) > 0:
+        z = 2 + int(r["use_cp_v"])
+        ax1.plot(tp, yp, r['ls'], marker=r['mkr'], label=r['lbl'], ms=6, zorder=z) 
+    else: 
+        ax1.plot([],[], r['ls'], marker=r['mkr'], label=r['lbl'])
 
 ax1.set_xlabel('t')
 ax1.set_ylabel('y(t)')
 ax1.legend(loc='upper left')
-ax1.grid(True, linestyle=':', alpha=0.7)
-ax1.set_ylim(min(0, y_initial - 1 if y_initial > 0 else y_initial -2 ), max_y_display) # Adjusted ylim
-ax1.set_xlim(t_initial - h_base_step*0.1, t_end_analytical_g1 + h_base_step*0.1)
-fig1.tight_layout(rect=[0, 0, 1, 0.96]) # Adjusted rect for suptitle
+ax1.grid(True, ls=':', alpha=0.7)
+ax1.set_ylim(bottom=min(y0 - 2, -1), top=max_y_plot) 
+ax1.set_xlim(left=t0 - h_b*0.1, right=max(t_end_an_g1 + h_b*0.1, t0 + h_b))
+fig1.tight_layout(rect=[0, 0, 1, 0.96]) 
 
-# Графік 2
 fig2, ax2 = plt.subplots(figsize=(10, 7))
-fig2.suptitle(f"Розв'язки: y' = 2*t*y^2, y({t_initial:.1f})={y_initial:.1f} (h_base={h_base_step})", fontsize=14)
-ax2.set_title("Варіанти (в) та (г)", fontsize=12)
+fig2.suptitle(f"y' = 2*t*y^2, y({t0:.0f})={y0:.0f} (h={h_b})", fontsize=14)
 
-max_t_for_plot2 = t_initial
-relevant_ids_g2 = ["c", "d"]
-h_for_xlim_g2 = 2 * h_base_step
-for sc_id in relevant_ids_g2:
-    res = all_results[sc_id]
-    if res['t'] and np.isfinite(res['t'][-1]): max_t_for_plot2 = max(max_t_for_plot2, res['t'][-1])
+max_t_p2 = t0
+rel_ids_g2 = ["c", "d"]
+h_p2 = 2 * h_b 
+for s_id in rel_ids_g2:
+    res = results[s_id]
+    if res['t']: max_t_p2 = max(max_t_p2, res['t'][-1])
 
-t_end_analytical_g2 = min(max_t_for_plot2 + h_for_xlim_g2, max_t_calculation + h_for_xlim_g2, 0.999)
-if t_end_analytical_g2 <= t_initial : t_end_analytical_g2 = max_t_calculation if max_t_calculation > t_initial else t_initial + h_for_xlim_g2
+t_end_an_g2 = min(max_t_p2 + h_p2, max_t + h_p2 * 0.1, 0.999)
+if t_end_an_g2 <= t0: t_end_an_g2 = max_t if max_t > t0 else t0 + h_p2
 
-t_analytical2 = np.linspace(t_initial, t_end_analytical_g2, 300)
-y_analytical2_raw = np.array([analytical_solution(ti) for ti in t_analytical2])
-valid_an_idx2 = np.where(np.isfinite(y_analytical2_raw) & (np.abs(y_analytical2_raw) < max_y_display * 1.1))[0]
-if len(valid_an_idx2) > 0:
-    ax2.plot(t_analytical2[valid_an_idx2], y_analytical2_raw[valid_an_idx2],
-                'k--', label=f'Точний розв\'язок', linewidth=1.5, zorder=1)
+ta2 = np.linspace(t0, t_end_an_g2, 300)
+ya2_raw = np.array([y(ti) for ti in ta2])
+valid_an2 = np.where(np.isfinite(ya2_raw) & (np.abs(ya2_raw) < max_y_plot * 1.1))[0]
+if len(valid_an2) > 0:
+    ax2.plot(ta2[valid_an2], ya2_raw[valid_an2], 'k--', label='Точний розв\'язок', lw=1.5, zorder=1)
 
-for sc_id in relevant_ids_g2:
-    result = all_results[sc_id]
-    t_plot = np.array(result['t'])
-    y_plot = np.array(result['y'])
-    valid_idx = np.where(np.isfinite(y_plot) & (np.abs(y_plot) < max_y_display * 1.5))[0]
-    if len(valid_idx) > 0:
-        ax2.plot(t_plot[valid_idx], y_plot[valid_idx],
-                    result['linestyle'], marker=result['marker'],
-                    label=result['label'], markersize=6, zorder=int(sc_id == 'd') + 2) # Corrector on top
+for s_id in rel_ids_g2:
+    r = results[s_id]
+    tp_raw = np.array(r['t'])
+    yp_raw = np.array(r['y'])
+    valid_plot_idx = np.where(np.isfinite(yp_raw) & (np.abs(yp_raw) < max_y_plot * 1.5))[0] 
+    tp = tp_raw[valid_plot_idx]
+    yp = yp_raw[valid_plot_idx]
+    if len(tp) > 0:
+        z = 2 + int(r["use_cp_v"])
+        ax2.plot(tp, yp, r['ls'], marker=r['mkr'], label=r['lbl'], ms=6, zorder=z)
     else:
-            ax2.plot([],[], result['linestyle'], marker=result['marker'], label=result['label'])
-            ax2.set_xlabel('t')
+        ax2.plot([],[], r['ls'], marker=r['mkr'], label=r['lbl'])
+
+ax2.set_xlabel('t')
 ax2.set_ylabel('y(t)')
 ax2.legend(loc='upper left')
-ax2.grid(True, linestyle=':', alpha=0.7)
-ax2.set_ylim(min(0, y_initial -1 if y_initial > 0 else y_initial -2 ), max_y_display) # Adjusted ylim
-ax2.set_xlim(t_initial - h_for_xlim_g2*0.1, t_end_analytical_g2 + h_for_xlim_g2*0.1)
-fig2.tight_layout(rect=[0, 0, 1, 0.96]) # Adjusted rect for suptitle
+ax2.grid(True, ls=':', alpha=0.7)
+ax2.set_ylim(bottom=min(y0 - 2, -1), top=max_y_plot)
+ax2.set_xlim(left=t0 - h_p2*0.1, right=max(t_end_an_g2 + h_p2*0.1, t0 + h_p2))
+fig2.tight_layout(rect=[0, 0, 1, 0.96])
 
 plt.show()
